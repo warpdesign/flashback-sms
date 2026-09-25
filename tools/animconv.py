@@ -57,20 +57,33 @@ def main():
 
         rgb2 = to_sms_rgb(f['pal'])
         c6lut = (rgb2[:, 0] | (rgb2[:, 1] << 2) | (rgb2[:, 2] << 4)).astype(np.int32)
+        # A level object's frame is often several blits sharing one animation
+        # number (73% of them), so the pieces of one object in one frame are
+        # composited, in draw order, into a single image.  Keeping only the
+        # largest piece drew the first enemy as a flat sliver of itself.
+        groups = {}
         for p in f['pieces']:
             # characters (sprite data) and objects (level sprites) are numbered
             # in the SAME space, so the kind is part of the key
             key = ((setid, p['anim'], (p['pge_flags'] & 2) >> 1) if setid is not None
                    else (p['anim'], (p['pge_flags'] & 2) >> 1, (p['pge_flags'] & 8) >> 3))
-            area = int((p['pix'] != 0).sum())
-            if area == 0:
+            if not (p['pix'] != 0).any():
                 continue
             for v in np.unique(p['pix'][p['pix'] != 0]):
                 cv = int(c6lut[int(v) | p['colmask']])
                 hist[cv] = hist.get(cv, 0) + 1
+            groups.setdefault((key, p.get('pge_index', 0), p['pge_x'], p['pge_y']), []).append(p)
+        for (key, _obj, px, py), ps in groups.items():
+            x0 = min(p['x'] for p in ps); y0 = min(p['y'] for p in ps)
+            x1 = max(p['x'] + p['w'] for p in ps); y1 = max(p['y'] + p['h'] for p in ps)
+            img = np.full((y1 - y0, x1 - x0), -1, np.int64)
+            for p in ps:                                   # later blits draw over earlier ones
+                sub = img[p['y'] - y0:p['y'] - y0 + p['h'], p['x'] - x0:p['x'] - x0 + p['w']]
+                col = c6lut[p['pix'].astype(np.int32) | p['colmask']]
+                np.copyto(sub, col, where=p['pix'] != 0)
+            area = int((img >= 0).sum())
             if key not in best or area > best[key][0]:
-                img = np.where(p['pix'] == 0, -1, c6lut[p['pix'].astype(np.int32) | p['colmask']])
-                best[key] = (area, img, p['x'] - p['pge_x'], p['y'] - p['pge_y'])
+                best[key] = (area, img, x0 - px, y0 - py)
 
     pal = [c for c, _ in sorted(hist.items(), key=lambda x: -x[1])][:15]
     pal = np.array([0] + pal + [0] * (15 - len(pal)), np.int32)
