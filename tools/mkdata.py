@@ -229,8 +229,9 @@ def pack(a):
     # per set a table of (bank, addr) per (anim, mirror), entries of
     #   u8 count, count x (u16 top, u16 bottom, i8 dx, i8 dy)
     spr_desc = (0,) * 7
-    spr_tab = [(0, 0)] * 6
-    spr_lo = [(0, 0)] * 6
+    nsets = 6
+    spr_tab = [(0, 0)] * nsets
+    spr_lo = [(0, 0)] * nsets
     spr_mon = []
     spr_max = 0
     spr_palette = [0] * 16
@@ -264,9 +265,10 @@ def pack(a):
         # each set covers only the animation numbers it actually uses: the
         # monsters share one 95-entry range, so a table sized to the global
         # maximum wasted ~30 KB
+        nsets = sp.get('nsets', 6)
         spr_tab = []
         spr_lo = []
-        for slot in range(6):
+        for slot in range(nsets):
             used = [anim for (sl, anim, _m) in where if sl == slot]
             lo, hi = (min(used), max(used)) if used else (0, 0)
             per = (hi - lo + 1) * 2 * 3
@@ -288,7 +290,7 @@ def pack(a):
             b.data += row
         b.align_bank()
         spr_palette = list(sp['palette'])
-        print(f"sprite sets: {len(sp['tiles'])} 8x8 tiles, {len(where)} entries, tables for 6 sets")
+        print(f"sprite sets: {len(sp['tiles'])} 8x8 tiles, {len(where)} entries, tables for {nsets} sets")
 
     print(f'  [pack] after sprites: bank {b.bank}')
     # 6c. level-select text (tools/menuconv.py): a few shared tiles, one row of
@@ -406,9 +408,10 @@ def pack(a):
         'extern const unsigned char menu_palette[16];',
         f'#define SPR_MAX_ANIM {spr_max}',
         'extern const TileDict spr_dict;',
-        'extern const unsigned char spr_tab_bank[6], spr_mon_bank[];',
-        'extern const unsigned int spr_tab_lo[6], spr_tab_hi[6];',
-        'extern const unsigned int spr_tab_addr[6], spr_mon_addr[];',
+        f'#define NUM_SPR_SETS {nsets}',
+        'extern const unsigned char spr_tab_bank[NUM_SPR_SETS], spr_mon_bank[];',
+        'extern const unsigned int spr_tab_lo[NUM_SPR_SETS], spr_tab_hi[NUM_SPR_SETS];',
+        'extern const unsigned int spr_tab_addr[NUM_SPR_SETS], spr_mon_addr[];',
         'extern const unsigned char spr_palette[16];',
         f'#define HAS_LOGIC {1 if a.logic else 0}',
         'extern const unsigned char level_num[], level_bank_a[], level_bank_obj[];',

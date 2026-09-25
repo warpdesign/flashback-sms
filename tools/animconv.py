@@ -48,12 +48,13 @@ def main():
     hist = {}
     for f in read_fbt(a.trace, a.frames or None):
         # full-game sprite dump: the frame's room byte carries the sprite set
-        # (0 Conrad, 1..4 monsters, 10+level objects); objects are the same
-        # global sprites in every level, so they collapse to one set (10)
+        # (0 Conrad, 1..4 monsters, 10 + level part + 16 * palette slot for
+        # level objects - each level's own colours, in each slot)
         setid = f['room'] if a.sets else None
-        if setid is not None and setid >= 10:
-            if setid != 10:
-                continue
+        # the one sprite palette must suit Conrad first (always on screen),
+        # then the monsters: objects now come in up to four colourings each
+        # and would otherwise outvote them (Conrad's jeans went grey)
+        weight = 8 if setid == 0 else 2 if setid is not None and setid < 10 else 1
 
         rgb2 = to_sms_rgb(f['pal'])
         c6lut = (rgb2[:, 0] | (rgb2[:, 1] << 2) | (rgb2[:, 2] << 4)).astype(np.int32)
@@ -71,7 +72,7 @@ def main():
                 continue
             for v in np.unique(p['pix'][p['pix'] != 0]):
                 cv = int(c6lut[int(v) | p['colmask']])
-                hist[cv] = hist.get(cv, 0) + 1
+                hist[cv] = hist.get(cv, 0) + weight
             groups.setdefault((key, p.get('pge_index', 0), p['pge_x'], p['pge_y']), []).append(p)
         for (key, _obj, px, py), ps in groups.items():
             x0 = min(p['x'] for p in ps); y0 = min(p['y'] for p in ps)

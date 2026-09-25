@@ -481,7 +481,10 @@ int main(int argc, char *argv[]) {
 	} else if (!strcmp(mode, "sprites")) {
 		/* Every sprite set the game can draw, for all levels, tagged by set:
 		 *   0 = Conrad, 1..4 = monsters (junky, mercenary, replicant, glue),
-		 *   10+L = the level objects of level part L.
+		 *   10 + L + 16*K = the level objects of level part L drawn in palette
+		 *   slot K: an object's flags (bits 5-6) pick one of four 16-colour
+		 *   slots (0 = the room's background palette, 1..3 its object
+		 *   palettes), so one frame has up to four colourings.
 		 * Written as a trace; each frame's room byte carries the set id. */
 		mkdirp(out);
 		char path[512];
@@ -511,10 +514,11 @@ int main(int argc, char *argv[]) {
 			if (g->_res._map) g->_vid.DOS_decodeMap(lvl, g->_currentRoom);
 			else g->_vid.DOS_decodeLev(lvl, g->_currentRoom);
 			LivePGE *pge = &g->_pgeLive[0];
-			/* passes: objects of this level; Conrad (once); each monster set (once) */
-			for (int pass = 0; pass < 6; ++pass) {
-				int set;
-				if (pass == 0) set = 10 + lvl;
+			/* passes: objects of this level in each palette slot; Conrad (once);
+			 * each monster set (once) */
+			for (int pass = -3; pass < 6; ++pass) {
+				int set, slot = 0;
+				if (pass <= 0) { slot = -pass; set = 10 + lvl + 16 * slot; }
 				else if (pass == 1) { if (lvl != 0) continue; set = 0; }
 				else {
 					const int m = pass - 2;                 /* monster set 0..3 */
@@ -543,7 +547,7 @@ int main(int argc, char *argv[]) {
 						g->_animBuffers._curPos[3] = 0xFF;
 						g_pieceCount = 0;
 						pge->anim_number = n;
-						pge->flags = (uint8_t)((mirror ? 2 : 0) | (set >= 10 ? 8 : 0));
+						pge->flags = (uint8_t)((mirror ? 2 : 0) | (set >= 10 ? 8 | (slot << 5) : 0));
 						pge->pos_x = 128;
 						pge->pos_y = 100;
 						pge->room_location = g->_currentRoom;

@@ -25,7 +25,31 @@ import tilepack as TP
 from levelconv import read_fbl
 
 MAX_PARTS = 40
-SET_SLOT = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 10: 5}
+# sprite set slots: 0 Conrad, 1..4 the monsters, then level objects per level
+# part and palette slot: 5 + 4 * part + slot (the engine draws an object in the
+# 16-colour palette slot its flags select, so a frame has up to 4 colourings)
+NUM_SETS = 5 + 4 * 7
+
+
+def object_frames(ani):
+    """animation numbers the level's object records can show (records whose
+    'object' word, at +4, is set; frames are u16 anim|mirror, i8 dx, i8 dy)"""
+    ntypes = struct.unpack_from('<H', ani, 2)[0] // 2
+    offs = sorted({2 + struct.unpack_from('<H', ani, 2 + n * 2)[0] for n in range(ntypes)})
+    ends = offs[1:] + [len(ani)]
+    out = set()
+    for o, e in zip(offs, ends):
+        if e - o < 6 or not struct.unpack_from('<H', ani, o + 4)[0]:
+            continue
+        count = struct.unpack_from('<H', ani, o)[0]
+        for i in range(count):
+            q = o + 6 + i * 4
+            if q + 2 > e:
+                break
+            w = struct.unpack_from('<H', ani, q)[0]
+            if w != 0xFFFF:
+                out.add(w & 0x7FFF)
+    return out
 
 # the engine's _monsterListLevels: (object node, monster set) pairs per level part
 MONSTER_LISTS = [
@@ -55,9 +79,25 @@ def main():
             halves.append(k)
         return hindex[k]
 
+    by_part = {int(os.path.basename(p).split('_L')[1].split('.')[0]): p for p in a.levels}
+    levels = {part: read_fbl(path) for part, path in by_part.items()}
+    obj_anims = {part: object_frames(lv['ani']) for part, lv in levels.items()}
+    obj_slots = {part: {(f & 0x60) >> 5 for f in lv['live_flags']} for part, lv in levels.items()}
+
+    def slot_of(setid, anim):
+        if setid < 10:
+            return setid
+        part, k = (setid - 10) % 16, (setid - 10) // 16
+        if part not in levels or k not in obj_slots[part] or anim not in obj_anims[part]:
+            return None                     # no object of that level can show it so
+        return 5 + 4 * part + k
+
     sets = {}
     dropped = 0
     for (setid, anim, mirror), parts in d['entries'].items():
+        slot = slot_of(setid, anim)
+        if slot is None:
+            continue
         if len(parts) > MAX_PARTS:
             dropped += 1
             continue
@@ -65,7 +105,7 @@ def main():
         for tid, dx, dy in parts:
             t = d['tiles'][tid]
             out.append((half_id(t[:32]), half_id(t[32:]), dx, dy))
-        sets.setdefault(SET_SLOT[setid], {})[(anim, mirror)] = out
+        sets.setdefault(slot, {})[(anim, mirror)] = out
 
     tiles64 = [TP.unplanar(h) for h in halves]
     raw = len(tiles64) * 32
@@ -73,10 +113,8 @@ def main():
 
     # rows are indexed by level part (level_L<part>.fbl); a part the data
     # does not have (the demo ships three) gets an empty row
-    by_part = {int(os.path.basename(p).split('_L')[1].split('.')[0]): p for p in a.levels}
     monster_of = [b''] * (max(by_part) + 1)
-    for part, path in sorted(by_part.items()):
-        lv = read_fbl(path)
+    for part, lv in sorted(levels.items()):
         mlist = MONSTER_LISTS[part]
         row = []
         for i in range(lv['npges']):
@@ -94,7 +132,7 @@ def main():
           f'{len(halves)} distinct 8x8 tiles: {raw/1024:.0f} KB raw -> {packed/1024:.0f} KB compact')
     for slot in sorted(sets):
         print(f'  set {slot}: {len(sets[slot])} entries')
-    pickle.dump(dict(tiles=tiles64, sets=sets, monster_of=monster_of,
+    pickle.dump(dict(tiles=tiles64, sets=sets, nsets=NUM_SETS, monster_of=monster_of,
                      palette=d['palette']), open(a.out, 'wb'))
 
 

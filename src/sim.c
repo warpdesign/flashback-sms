@@ -232,7 +232,8 @@ static void draw_parts(const unsigned char *pp) __naked
  * room list, into hardware sprites (at most 60, counted in dp_n).  Per
  * object, in asm; the C it implements:
  *   skip unless flags bit 2 (active) and room_location == sim_room
- *   set = flags & 8 ? 5 (level objects)
+ *   set = flags & 8 ? 5 + 4 * level part + palette slot (flags bits 5-6):
+ *                      level objects, in the colours the engine gives that slot
  *       : anim in 0x22F..0x28D ? 1 + the level's monster type for this object
  *                                (0xFF: no sprites, skip)
  *       : 0 (Conrad)
@@ -292,7 +293,19 @@ static void draw_objects(void) __naked
     jp   nz, 00090$
     bit  3, 17 (ix)             ; which sprite set
     jr   z, 00002$
-    ld   a, #5
+    ld   a, 17 (ix)             ; a level object: 5 + 4 * part + palette slot
+    and  a, #0x60
+    rrca
+    rrca
+    rrca
+    rrca
+    rrca                        ; palette slot 0..3 (flags bits 5-6)
+    ld   b, a
+    ld   a, (_logic_level)
+    add  a, a
+    add  a, a
+    add  a, b
+    add  a, #5
     jr   00005$
 00002$:
     ld   l, 6 (ix)
